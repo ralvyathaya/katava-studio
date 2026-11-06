@@ -1,0 +1,206 @@
+// Katava Studio — Prisma Schema
+// Tencent Cloud Hackathon Indonesia 2026, Challenge C: The Creator Agent
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Rulebook ────────────────────────────────────────────────────────
+
+model RulebookVersion {
+  id        String   @id @default(cuid())
+  rulebookId String  // e.g. "KATAVA-DEMO-GUARDRAILS"
+  version   String   // e.g. "0.1"
+  authority String   // e.g. "Internal prototype policy only. NOT Indonesian law."
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  rules     RuleEntry[]
+
+  @@unique([rulebookId, version])
+}
+
+model RuleEntry {
+  id               String          @id @default(cuid())
+  rulebookVersionId String
+  ruleId           String          // e.g. "DEMO-GUARD-001"
+  policyText       String          // the rule description
+  requiredEvidence String          // what evidence is needed / disposition
+  createdAt        DateTime        @default(now())
+
+  rulebookVersion  RulebookVersion @relation(fields: [rulebookVersionId], references: [id])
+
+  @@unique([rulebookVersionId, ruleId])
+}
+
+// ─── Campaign & Product Source ────────────────────────────────────────
+
+model Campaign {
+  id          String   @id @default(cuid())
+  name        String
+  brandName   String
+  campaignGoal String
+  audience    String
+  language    String   @default("id")
+  brandTone   String?
+  creativeBrief String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  productSource  ProductSource?
+  contentItems   ContentItem[]
+  reviewLinks    ReviewLink[]
+  auditEvents    AuditEvent[]
+}
+
+model ProductSource {
+  id          String   @id @default(cuid())
+  campaignId  String   @unique
+  rawText     String   // the original pasted product sheet
+  productName String?
+  category    String?
+  brandName   String?
+  createdAt   DateTime @default(now())
+
+  campaign    Campaign @relation(fields: [campaignId], references: [id])
+  facts       ProductFact[]
+}
+
+model ProductFact {
+  id               String   @id @default(cuid())
+  productSourceId  String
+  factKey          String   // e.g. "ingredients", "package", "category"
+  statement        String   // the extracted fact statement
+  status           String   // "source_backed" | "unverified" | "conflicting"
+  sourceExcerpt    String?  // exact text from source supporting this fact
+  createdAt        DateTime @default(now())
+
+  productSource    ProductSource @relation(fields: [productSourceId], references: [id])
+}
+
+// ─── Content Items & Versions ────────────────────────────────────────
+
+model ContentItem {
+  id          String   @id @default(cuid())
+  campaignId  String
+  format      String   // "instagram" | "reels" | "marketplace"
+  status      String   @default("created") // state machine value
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  campaign    Campaign       @relation(fields: [campaignId], references: [id])
+  versions    ContentVersion[]
+  agentRuns   AgentRun[]
+  reviewFindings ReviewFinding[]
+  approvals   Approval[]
+  auditEvents AuditEvent[]
+}
+
+model ContentVersion {
+  id              String   @id @default(cuid())
+  contentItemId   String
+  versionNumber   Int      @default(1)
+  draftText       String
+  citedFactIds    String   // JSON array of fact IDs
+  revisionOfId    String?  // previous version ID if this is a revision
+  reviewCycle     Int      @default(1)
+  createdAt       DateTime @default(now())
+
+  contentItem     ContentItem @relation(fields: [contentItemId], references: [id])
+  agentRuns       AgentRun[]
+  reviewFindings  ReviewFinding[]
+  approvals       Approval[]
+}
+
+// ─── Agent Runs & Review Findings ────────────────────────────────────
+
+model AgentRun {
+  id              String   @id @default(cuid())
+  contentItemId   String
+  contentVersionId String?
+  agentName       String   // "planner" | "writer" | "reviewer" | "rule_engine"
+  agentRole       String   // system prompt role description
+  inputSummary    String   // JSON: sanitized input summary
+  outputRaw       String?  // raw LLM response or rule engine output
+  outputValid     Boolean  @default(true)
+  validationError String?
+  modelId         String?  // LLM model used
+  tokensUsed      Int?
+  latencyMs       Int?
+  cycleNumber     Int      @default(1)
+  createdAt       DateTime @default(now())
+
+  contentItem     ContentItem    @relation(fields: [contentItemId], references: [id])
+  contentVersion  ContentVersion? @relation(fields: [contentVersionId], references: [id])
+}
+
+model ReviewFinding {
+  id              String   @id @default(cuid())
+  contentItemId   String
+  contentVersionId String
+  severity        String   // "block" | "warning"
+  excerpt         String   // quoted problematic text from draft
+  issue           String   // description of the issue
+  ruleId          String   // must map to a loaded rulebook entry
+  ruleSource      String   // e.g. "Katava demo policy v0.1"
+  suggestedFix    String?
+  createdAt       DateTime @default(now())
+
+  contentItem     ContentItem    @relation(fields: [contentItemId], references: [id])
+  contentVersion  ContentVersion @relation(fields: [contentVersionId], references: [id])
+}
+
+// ─── Audit Events ────────────────────────────────────────────────────
+
+model AuditEvent {
+  id              String   @id @default(cuid())
+  campaignId      String?
+  contentItemId   String?
+  contentVersionId String?
+  actor           String   // agent name, client-link ID, or system
+  action          String   // e.g. "planner_executed", "review_rejected", "client_approved"
+  details         String   // JSON: safely redacted summary
+  rulebookVersion String?
+  verdict         String?  // PASS | REJECT | ESCALATE | review_incomplete
+  error           String?
+  retryCount      Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  campaign        Campaign?     @relation(fields: [campaignId], references: [id])
+  contentItem     ContentItem?  @relation(fields: [contentItemId], references: [id])
+}
+
+// ─── Client Review Portal ────────────────────────────────────────────
+
+model ReviewLink {
+  id              String   @id @default(cuid())
+  campaignId      String
+  tokenHash       String   // cryptographic hash of the raw token
+  scope           String   // JSON: which content items are accessible
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  campaign        Campaign     @relation(fields: [campaignId], references: [id])
+  approvals       Approval[]
+}
+
+model Approval {
+  id              String   @id @default(cuid())
+  contentItemId   String
+  contentVersionId String
+  reviewLinkId    String?
+  approvedBy      String   // "client_via_link" or agency user
+  status          String   // "approved" | "rejected" | "revision_requested"
+  comment         String?
+  createdAt       DateTime @default(now())
+
+  contentItem     ContentItem    @relation(fields: [contentItemId], references: [id])
+  contentVersion  ContentVersion @relation(fields: [contentVersionId], references: [id])
+  reviewLink      ReviewLink?    @relation(fields: [reviewLinkId], references: [id])
+}
