@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title description">
+  <title id="title">Katava Studio</title>
+  <desc id="description">A violet rounded square with a white K and a small spark.</desc>
+  <defs>
+    <linearGradient id="background" x1="10" y1="8" x2="86" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6D5DFB"/>
+      <stop offset="1" stop-color="#9B51E0"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="54" y1="20" x2="73" y2="43" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DCD6FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="92" height="92" rx="28" fill="url(#background)"/>
+  <rect x="3" y="3" width="90" height="90" rx="27" fill="none" stroke="#FFFFFF" stroke-opacity=".18" stroke-width="2"/>
+  <path d="M27 24v48M29 51l27-27M29 51l29 23" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m62 16 4.5 8.5L75 29l-8.5 4.5L62 42l-4.5-8.5L49 29l8.5-4.5L62 16Z" fill="url(#spark)"/>
+</svg>
