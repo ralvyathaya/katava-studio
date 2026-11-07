@@ -40,6 +40,9 @@ yarn-error.log*
 /prisma/dev.db
 /prisma/dev.db-journal
 
+# local acceptance fixtures (never commit private review credentials)
+/.m4-*
+
 # vercel
 .vercel
 
