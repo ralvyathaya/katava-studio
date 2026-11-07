@@ -33,6 +33,17 @@ export interface LLMResponse {
   success: boolean;
   error?: string;
   errorKind?: "not_configured" | "timeout" | "cancelled" | "http" | "network" | "malformed";
+  httpStatus?: number;
+}
+
+// One retry is enough to absorb a transient gateway blip without turning a
+// 90-second item into an unbounded retry loop. The caller's signal remains the
+// absolute deadline; no retry can outlive it or commit an unreviewed PASS.
+const MAX_LLM_ATTEMPTS = 2;
+const TRANSIENT_RETRY_DELAY_MS = 250;
+const TRANSIENT_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+function isTransientStatus(status?: number): boolean {
+  return status !== undefined && TRANSIENT_HTTP_STATUSES.has(status);
 }
 
 /** Redact configured secrets BEFORE truncating or exposing upstream diagnostics. */
@@ -140,12 +151,16 @@ export type TestLLMTransport = (messages: LLMMessage[]) => Promise<{
   content: string;
   success?: boolean;
   error?: string;
+  errorKind?: LLMResponse["errorKind"];
+  httpStatus?: number;
   delayMs?: number;
   throwError?: string;
 }> | {
   content: string;
   success?: boolean;
   error?: string;
+  errorKind?: LLMResponse["errorKind"];
+  httpStatus?: number;
   delayMs?: number;
   throwError?: string;
 };
@@ -210,29 +225,44 @@ export async function callLLM(
   // Test seam — only reachable in a test process with an explicitly injected
   // transport. Production always continues to the real network path below.
   if (isTestTransportActive() && testTransport) {
-    try {
-      const out = await abortable(Promise.resolve(testTransport(messages)), options?.signal);
-      if (out.delayMs) await abortable(new Promise<void>((r) => setTimeout(r, out.delayMs)), options?.signal);
-      if (out.throwError) throw new Error(out.throwError);
-      const success = out.success !== false;
-      return {
-        content: success ? out.content : "",
-        model: "scripted-test-transport",
-        latencyMs: Date.now() - startTime,
-        success,
-        error: success ? undefined : redactLLMDiagnostic(out.error || "Scripted transport failure"),
-        errorKind: success ? undefined : "http",
-      };
-    } catch (e) {
-      return {
-        content: "",
-        model: "scripted-test-transport",
-        latencyMs: Date.now() - startTime,
-        success: false,
-        error: redactLLMDiagnostic(e instanceof Error ? e.message : "Scripted transport error"),
-        errorKind: options?.signal?.aborted ? "cancelled" : "network",
-      };
+    const transport = testTransport;
+    for (let attempt = 1; attempt <= MAX_LLM_ATTEMPTS; attempt++) {
+      let response: LLMResponse;
+      try {
+        const out = await abortable(Promise.resolve(transport(messages)), options?.signal);
+        if (out.delayMs) await abortable(new Promise<void>((r) => setTimeout(r, out.delayMs)), options?.signal);
+        if (out.throwError) throw new Error(out.throwError);
+        const success = out.success !== false;
+        response = {
+          content: success ? out.content : "",
+          model: "scripted-test-transport",
+          latencyMs: Date.now() - startTime,
+          success,
+          error: success ? undefined : redactLLMDiagnostic(out.error || "Scripted transport failure"),
+          errorKind: success ? undefined : out.errorKind ?? (/timed out|timeout/i.test(out.error ?? "") ? "timeout" : "http"),
+          httpStatus: success ? undefined : out.httpStatus,
+        };
+      } catch (e) {
+        response = {
+          content: "",
+          model: "scripted-test-transport",
+          latencyMs: Date.now() - startTime,
+          success: false,
+          error: redactLLMDiagnostic(e instanceof Error ? e.message : "Scripted transport error"),
+          errorKind: options?.signal?.aborted ? "cancelled" : "network",
+        };
+      }
+      const retryable = response.errorKind === "timeout" || response.errorKind === "network" ||
+        (response.errorKind === "http" && isTransientStatus(response.httpStatus));
+      if (!retryable || attempt === MAX_LLM_ATTEMPTS || options?.signal?.aborted) return response;
+      try {
+        await abortable(new Promise<void>((r) => setTimeout(r, TRANSIENT_RETRY_DELAY_MS)), options?.signal);
+      } catch {
+        return { content: "", model: "scripted-test-transport", latencyMs: Date.now() - startTime,
+          success: false, error: "LLM call cancelled before transient retry", errorKind: "cancelled" };
+      }
     }
+    throw new Error("Unreachable retry state");
   }
 
   let config: LLMConfig;
@@ -257,58 +287,71 @@ export async function callLLM(
   };
 
   const url = `${config.baseUrl}/chat/completions`;
-  // One call budget across compatibility retries, plus the item/request signal.
-  const callTimeout = AbortSignal.timeout(config.timeoutMs);
-  const signal = options?.signal ? AbortSignal.any([options.signal, callTimeout]) : callTimeout;
-
-  const request = async (body: Record<string, unknown>): Promise<RawResult> => {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal,
-      });
-      const raw = await response.text().catch(() => "");
-      let data: Record<string, unknown> | undefined;
+  const wantsJson = options?.jsonMode === true;
+  let activeSignal: AbortSignal | undefined;
+  const attempt = async (): Promise<RawResult> => {
+    // Each transient attempt gets a fresh per-attempt timeout, while the
+    // compatibility fallback below shares it. The parent item/request signal
+    // always wins, so the retry cannot extend the overall generation budget.
+    const callTimeout = AbortSignal.timeout(config.timeoutMs);
+    const signal = options?.signal ? AbortSignal.any([options.signal, callTimeout]) : callTimeout;
+    activeSignal = signal;
+    const request = async (body: Record<string, unknown>): Promise<RawResult> => {
       try {
-        data = JSON.parse(raw);
-      } catch {
-        /* non-JSON response body */
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal,
+        });
+        const raw = await response.text().catch(() => "");
+        let data: Record<string, unknown> | undefined;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          /* non-JSON response body */
+        }
+        return {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          raw,
+          data,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          status: 0,
+          statusText: "",
+          raw: "",
+          error: error instanceof Error ? error.message : "Unknown network error",
+          errorKind: options?.signal?.aborted ? "cancelled" : isTimeoutError(error) ? "timeout" : "network",
+        };
       }
-      return {
-        ok: response.ok,
-        status: response.status,
-        statusText: response.statusText,
-        raw,
-        data,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        status: 0,
-        statusText: "",
-        raw: "",
-        error: error instanceof Error ? error.message : "Unknown network error",
-        errorKind: options?.signal?.aborted ? "cancelled" : isTimeoutError(error) ? "timeout" : "network",
-      };
+    };
+    let result = await request(wantsJson ? { ...baseBody, response_format: { type: "json_object" } } : baseBody);
+    // Some OpenAI-compatible gateways do not support response_format.
+    // Retry once without it ONLY when the gateway explicitly complains about it.
+    if (wantsJson && !result.ok && /response_format|json_object/i.test(result.raw)) {
+      result = await request(baseBody);
     }
+    return result;
   };
 
-  const wantsJson = options?.jsonMode === true;
-  let result = await request(wantsJson ? { ...baseBody, response_format: { type: "json_object" } } : baseBody);
-
-  // Some OpenAI-compatible gateways do not support response_format.
-  // Retry once without it ONLY when the gateway explicitly complains about it.
-  if (
-    wantsJson &&
-    !result.ok &&
-    /response_format|json_object/i.test(result.raw)
-  ) {
-    result = await request(baseBody);
+  let result = await attempt();
+  const retryable = result.errorKind === "timeout" || result.errorKind === "network" ||
+    (!result.errorKind && isTransientStatus(result.status));
+  if (retryable && !options?.signal?.aborted) {
+    try {
+      await abortable(new Promise<void>((r) => setTimeout(r, TRANSIENT_RETRY_DELAY_MS)), options?.signal);
+      result = await attempt();
+    } catch {
+      result = { ok: false, status: 0, statusText: "", raw: "",
+        error: "LLM call cancelled before transient retry", errorKind: "cancelled" };
+    }
   }
 
   const latencyMs = Date.now() - startTime;
@@ -324,12 +367,13 @@ export async function callLLM(
       success: false,
       error: redactLLMDiagnostic(detail),
       errorKind: result.errorKind || "http",
+      httpStatus: result.status || undefined,
     };
   }
 
   const choice = result.data?.choices as Array<{ message?: { content?: unknown } }> | undefined;
   const content = choice?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim() || signal.aborted) {
+  if (typeof content !== "string" || !content.trim() || activeSignal?.aborted) {
     return {
       content: "",
       model: config.model,

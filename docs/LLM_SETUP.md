@@ -69,7 +69,7 @@ The pipeline returns `review_incomplete` and writes the failure to the audit tra
 | Malformed JSON from an agent | `review_incomplete`, no fabricated parse |
 | Invalid rule citation / Rule Engine hard block | `REJECT` or escalation; a Reviewer `PASS` cannot override a hard block |
 
-`response_format: { type: "json_object" }` is sent when an agent requests JSON mode. If the gateway explicitly rejects that field, the adapter retries once without it, within the same per-call timeout. There is no automatic retry for 429/5xx/timeouts.
+`response_format: { type: "json_object" }` is sent when an agent requests JSON mode. If the gateway explicitly rejects that field, the adapter retries once without it, within the same per-attempt timeout. A transient timeout, network failure, or HTTP 408/425/429/500/502/503/504 receives at most one additional attempt after a 250 ms delay. The caller's cancellation/deadline remains authoritative across both attempts; permanent HTTP errors, missing configuration, malformed responses and invalid agent output are never retried.
 
 ### Quick Test and multi-format execution
 

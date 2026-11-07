@@ -443,6 +443,97 @@ describe("T10 — Provider failure fails closed without approval", () => {
     assert.equal(response.success, false);
     assert.equal(response.errorKind, "network");
   });
+
+  for (const transient of [
+    { name: "timeout", failure: { content: "", success: false, error: "gateway timeout", errorKind: "timeout" } },
+    { name: "network", failure: { content: "", success: false, error: "socket reset", errorKind: "network" } },
+    { name: "HTTP 429", failure: { content: "", success: false, error: "rate limited", errorKind: "http", httpStatus: 429 } },
+    { name: "HTTP 503", failure: { content: "", success: false, error: "temporarily unavailable", errorKind: "http", httpStatus: 503 } },
+  ] as const) {
+    it(`retries one transient ${transient.name} failure, then accepts a real transport success`, async () => {
+      let calls = 0;
+      __setLLMTransportForTests(() => ++calls === 1 ? transient.failure : { content: "OK", success: true });
+      const response = await callLLM([{ role: "user", content: "ping" }]);
+      assert.equal(response.success, true);
+      assert.equal(response.content, "OK");
+      assert.equal(calls, 2);
+    });
+  }
+
+  it("never retries a permanent HTTP 400 response", async () => {
+    let calls = 0;
+    __setLLMTransportForTests(() => {
+      calls++;
+      return { content: "", success: false, error: "bad request", errorKind: "http", httpStatus: 400 };
+    });
+    const response = await callLLM([{ role: "user", content: "ping" }]);
+    assert.equal(response.success, false);
+    assert.equal(response.httpStatus, 400);
+    assert.equal(calls, 1);
+  });
+
+  it("caps repeated transient failures at two attempts and still fails closed", async () => {
+    let calls = 0;
+    __setLLMTransportForTests(() => {
+      calls++;
+      return { content: "", success: false, error: "gateway timeout", errorKind: "timeout" };
+    });
+    const response = await callLLM([{ role: "user", content: "ping" }]);
+    assert.equal(response.success, false);
+    assert.equal(response.errorKind, "timeout");
+    assert.equal(calls, 2);
+  });
+
+  it("never starts or retries a call after the caller's deadline is cancelled", async () => {
+    let calls = 0;
+    const controller = new AbortController();
+    controller.abort(new Error("90-second item deadline exceeded"));
+    __setLLMTransportForTests(() => { calls++; return { content: "OK" }; });
+    const response = await callLLM([{ role: "user", content: "ping" }], { signal: controller.signal });
+    assert.equal(response.success, false);
+    assert.equal(response.errorKind, "cancelled");
+    assert.equal(calls, 0);
+  });
+
+  it("uses a fresh timeout signal on the real fetch path after a transient HTTP 503", async () => {
+    __setLLMTransportForTests(null);
+    const originalFetch = globalThis.fetch;
+    const originalEnv = {
+      key: process.env.OPENAI_API_KEY,
+      baseUrl: process.env.OPENAI_BASE_URL,
+      model: process.env.OPENAI_MODEL,
+    };
+    const signals: AbortSignal[] = [];
+    let calls = 0;
+    try {
+      process.env.OPENAI_API_KEY = "synthetic-fetch-test-key-not-a-credential";
+      process.env.OPENAI_BASE_URL = "https://gateway.invalid/v1";
+      process.env.OPENAI_MODEL = "synthetic-fetch-model";
+      globalThis.fetch = async (_input, init) => {
+        calls++;
+        assert.ok(init?.signal instanceof AbortSignal);
+        signals.push(init.signal);
+        assert.equal(init.signal.aborted, false);
+        if (calls === 1) return new Response('{"error":"temporary"}', { status: 503, statusText: "Service Unavailable" });
+        return new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }], usage: { total_tokens: 3 } }), {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      };
+      const response = await callLLM([{ role: "user", content: "ping" }]);
+      assert.equal(response.success, true);
+      assert.equal(response.content, "OK");
+      assert.equal(response.tokensUsed, 3);
+      assert.equal(calls, 2);
+      assert.equal(signals.length, 2);
+      assert.notEqual(signals[0], signals[1], "A retry must not reuse the aborted per-attempt timeout");
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const [key, value] of Object.entries({ OPENAI_API_KEY: originalEnv.key,
+        OPENAI_BASE_URL: originalEnv.baseUrl, OPENAI_MODEL: originalEnv.model })) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+  });
 });
 
 // ─── T07 / T20: Unknown category and injection handling ─────────────────

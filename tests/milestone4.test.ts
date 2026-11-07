@@ -372,6 +372,18 @@ describe("M4 safe manager setup (pure planning; no local .env writes)", () => {
 });
 
 describe("M4 HTTP authorization boundaries", () => {
+  let deployedPublicOrigin: string | undefined;
+  before(() => {
+    // Local deployment configuration must not change the default-origin
+    // contract under test. The explicit-origin case below sets its own value.
+    deployedPublicOrigin = process.env.KATAVA_PUBLIC_ORIGIN;
+    delete process.env.KATAVA_PUBLIC_ORIGIN;
+  });
+  after(() => {
+    if (deployedPublicOrigin === undefined) delete process.env.KATAVA_PUBLIC_ORIGIN;
+    else process.env.KATAVA_PUBLIC_ORIGIN = deployedPublicOrigin;
+  });
+
   it("fails closed without manager configuration and rejects a missing/wrong key", () => {
     const original = process.env.KATAVA_MANAGER_KEY;
     try {

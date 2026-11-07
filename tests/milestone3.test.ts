@@ -430,7 +430,7 @@ describe("T10 — independent failures and cancellation (SCRIPTED TEST SEAM, NOT
       const s = scripted((call, normal) => {
         if (call.role === "reviewer" && call.format === "reels") {
           if (mode === "provider throw") throw new Error("Scripted socket hang up");
-          return { content: "", success: false, error: "Scripted provider HTTP 503" };
+          return { content: "", success: false, error: "Scripted provider HTTP 503", errorKind: "http", httpStatus: 503 };
         }
         return normal;
       });
@@ -443,11 +443,26 @@ describe("T10 — independent failures and cancellation (SCRIPTED TEST SEAM, NOT
       assert.equal(incomplete.versions[0].draftText, DRAFTS.reels);
       assert.match(resultFor(batch, "reels").failureReason!, mode === "provider throw" ? /socket hang up/ : /HTTP 503/);
       assert.ok(incomplete.agentRuns.some((a) => a.agentName === "reviewer" && !a.outputValid));
-      assert.deepEqual(s.counts, { planner: 2, writer: 2, reviewer: 2 });
+      assert.deepEqual(s.counts, { planner: 2, writer: 2, reviewer: 3 }, "The failed Reviewer gets exactly one bounded retry");
       assert.equal(job.events.filter((e) => e.type === "result").length, 2);
       assert.equal(job.events.at(-1)?.type, "complete");
     });
   }
+
+  it("recovers to a persisted PASS when one transient Reviewer timeout is followed by valid output", async () => {
+    const s = scripted((call, normal) => {
+      if (call.role === "reviewer" && call.ordinal === 1) {
+        return { content: "", success: false, error: "Scripted transient gateway timeout", errorKind: "timeout" };
+      }
+      return normal;
+    });
+    const job = startBatch({ formats: ["instagram"] });
+    const batch = await job.run;
+    const item = await assertPassed(resultFor(batch, "instagram"));
+    assert.deepEqual(s.counts, { planner: 1, writer: 1, reviewer: 2 });
+    assert.equal(item.versions.length, 1);
+    assert.ok(!item.auditEvents.some((a) => a.action === "fail_closed"));
+  });
 
   it("an item deadline interrupts a waiting reviewer; a late scripted PASS never persists and the sibling stays passed", async () => {
     const waiting = deferred();
