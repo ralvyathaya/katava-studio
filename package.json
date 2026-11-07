@@ -7,10 +7,11 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test --test-concurrency=1 tests/pipeline.test.ts tests/milestone2.test.ts tests/milestone3.test.ts tests/milestone4.test.ts",
+    "test": "tsx --test --test-concurrency=1 tests/pipeline.test.ts tests/milestone2.test.ts tests/milestone3.test.ts tests/milestone4.test.ts tests/milestone5.test.ts",
     "verify:llm": "tsx scripts/verify-llm.ts",
     "setup:approval": "tsx scripts/setup-approval.ts",
     "test:m4": "tsx --tsconfig tsconfig.json --test --test-concurrency=1 tests/milestone4.test.ts",
+    "test:m5": "tsx --tsconfig tsconfig.json --test --test-concurrency=1 tests/milestone5.test.ts",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio"
