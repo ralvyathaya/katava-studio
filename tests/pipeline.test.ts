@@ -5,7 +5,7 @@
 import "./load-env";
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { ingestProductSheet, formatFactsForPrompt } from "../lib/ingestion";
+import { ingestProductSheet } from "../lib/ingestion";
 import { runRuleEngine } from "../lib/rules/engine";
 import { isLLMConfigured } from "../lib/llm-adapter";
 import { PrismaClient } from "@prisma/client";

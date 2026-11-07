@@ -9,6 +9,7 @@
 import "./load-env";
 import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import {
   __setLLMTransportForTests,
@@ -115,17 +116,30 @@ const review = (
 
 // ─── DB fixture helpers ─────────────────────────────────────────────────
 
+let ownedFallbackRulebookId: string | null = null;
+
 async function ensureRulebook(): Promise<void> {
   const active = await prisma.rulebookVersion.findFirst({ where: { isActive: true } });
   if (active) return;
+  // Prefer restoring the real seeded policy: an earlier seed may have been
+  // deactivated, but unit tests must never leave a synthetic active policy
+  // that the running app would silently use for real generation.
+  const seeded = await prisma.rulebookVersion.findFirst({
+    where: { rulebookId: "KATAVA-DEMO-GUARDRAILS" }, include: { rules: true },
+  });
+  if (seeded && seeded.rules.length === RULE_IDS.length) {
+    await prisma.rulebookVersion.update({ where: { id: seeded.id }, data: { isActive: true } });
+    return;
+  }
   const rv = await prisma.rulebookVersion.create({
     data: {
-      rulebookId: "KATAVA-TEST-GUARDRAILS",
+      rulebookId: `m2-unit-fallback-${randomUUID()}`,
       version: "0.1",
       authority: "Internal test policy only. NOT law.",
       isActive: true,
     },
   });
+  ownedFallbackRulebookId = rv.id;
   for (const ruleId of RULE_IDS) {
     await prisma.ruleEntry.create({
       data: {
@@ -193,7 +207,13 @@ afterEach(() => {
 });
 
 after(async () => {
-  await prisma.$disconnect();
+  try {
+    if (ownedFallbackRulebookId) {
+      // Clean up ONLY the uniquely named fallback this test created.
+      await prisma.ruleEntry.deleteMany({ where: { rulebookVersionId: ownedFallbackRulebookId } });
+      await prisma.rulebookVersion.delete({ where: { id: ownedFallbackRulebookId } });
+    }
+  } finally { await prisma.$disconnect(); }
 });
 
 // ─── T03: Immediate escalation, zero LLM calls ──────────────────────────

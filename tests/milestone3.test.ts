@@ -22,6 +22,7 @@ const ownedGoals = new Set<string>();
 const ownedCampaigns = new Set<string>();
 const transportContractErrors: unknown[] = [];
 let activeRulebookId: string;
+let ownedFallbackRulebookId: string | null = null;
 
 const SAFE_SHEET = `Product name: CalmLeaf Chamomile & Lemongrass Herbal Tea
 Brand: CalmLeaf (fictional)
@@ -196,16 +197,26 @@ async function assertPassed(result: OrchestratorResult) {
 before(async () => {
   let active = await prisma.rulebookVersion.findFirst({ where: { isActive: true } });
   if (!active) {
-    // Fallback ONLY if absent; never replace, clear, or deactivate seeded policy.
-    active = await prisma.rulebookVersion.create({ data: {
-      rulebookId: `${PREFIX}-fallback`, version: "0.1", isActive: true,
-      authority: "Internal scripted unit test policy only; not law.",
-      rules: { create: Array.from({ length: 6 }, (_, i) => ({
-        ruleId: `DEMO-GUARD-${String(i + 1).padStart(3, "0")}`,
-        policyText: "Internal demo guard: reject unsupported claims and escalate uncovered inputs.",
-        requiredEvidence: "Source-backed facts and human review; no automatic publication.",
-      })) },
-    } });
+    // First restore the real seeded policy if it exists but was deactivated.
+    // Never leave a synthetic policy active for the running application.
+    const seeded = await prisma.rulebookVersion.findFirst({
+      where: { rulebookId: "KATAVA-DEMO-GUARDRAILS" }, include: { rules: true },
+    });
+    if (seeded && seeded.rules.length === 6) {
+      await prisma.rulebookVersion.update({ where: { id: seeded.id }, data: { isActive: true } });
+      active = seeded;
+    } else {
+      active = await prisma.rulebookVersion.create({ data: {
+        rulebookId: `${PREFIX}-fallback`, version: "0.1", isActive: true,
+        authority: "Internal scripted unit test policy only; not law.",
+        rules: { create: Array.from({ length: 6 }, (_, i) => ({
+          ruleId: `DEMO-GUARD-${String(i + 1).padStart(3, "0")}`,
+          policyText: "Internal demo guard: reject unsupported claims and escalate uncovered inputs.",
+          requiredEvidence: "Source-backed facts and human review; no automatic publication.",
+        })) },
+      } });
+      ownedFallbackRulebookId = active.id;
+    }
   }
   activeRulebookId = active.id;
 });
@@ -251,7 +262,15 @@ afterEach(async () => {
 after(async () => {
   __setLLMTransportForTests(null);
   try { await cleanupOwnedCampaigns(); }
-  finally { await prisma.$disconnect(); }
+  finally {
+    try {
+      if (ownedFallbackRulebookId) {
+        // Only the uniquely tagged fallback created by this suite.
+        await prisma.ruleEntry.deleteMany({ where: { rulebookVersionId: ownedFallbackRulebookId } });
+        await prisma.rulebookVersion.delete({ where: { id: ownedFallbackRulebookId } });
+      }
+    } finally { await prisma.$disconnect(); }
+  }
 });
 
 describe("T01 — shared batch and bounded concurrency (SCRIPTED TEST SEAM, NOT real AI)", { concurrency: false }, () => {
