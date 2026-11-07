@@ -49,7 +49,12 @@ export function ApprovalControls({ contentItemId, managerKey, draftText, onChang
         // immediately, even if the follow-up read fails. Do not lose a confirmed URL.
         setOverview(null); setEditing(false); setAcknowledged(false);
         if (body.action === "issue") {
-          setUrl(`${window.location.origin}/review#token=${data.token}`);
+          // App Publishing share links establish access before API calls. Carry
+          // that access code to a recipient opening the portal in a new browser;
+          // the one-time review credential remains exclusively in the fragment.
+          const shareCode = new URLSearchParams(window.location.search).get("sharecode");
+          const accessQuery = shareCode ? `?sharecode=${encodeURIComponent(shareCode)}` : "";
+          setUrl(`${window.location.origin}/review${accessQuery}#token=${data.token}`);
           setNotice("Private bearer link issued for this version. It is shown once here; do not forward to unintended recipients. AI PASS is still not human approval.");
         } else {
           setUrl(null);
