@@ -87,7 +87,9 @@ export type ContentItemStatus =
   | "escalated"
   | "review_incomplete"
   | "awaiting_client_approval"
-  | "client_approved";
+  | "client_approved"
+  | "client_rejected"
+  | "client_revision_requested";
 
 // ─── Orchestrator Timeline Event ─────────────────────────────────────
 

@@ -10,6 +10,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { redactLLMDiagnostic } from "./llm-adapter";
+import { contentDigest, sourceDigest, policyDigest, sha256 } from "./content-integrity";
 import { runPlanner, PlannerInput, PlannerResult } from "./agents/planner";
 import { runWriter, WriterInput, WriterResult } from "./agents/writer";
 import { runReviewer, ReviewerInput, ReviewerResult } from "./agents/reviewer";
@@ -76,7 +77,8 @@ export async function runOrchestrator(
   const timeline: TimelineEvent[] = [];
   const stepStarts = new Map<string, number>();
   let cycle = 1;
-  let rulebookVersionId: string | undefined;
+  // Early cancellation/missing-policy audit intentionally has no rulebook ID.
+  let rulebookVersionId: string | undefined = undefined;
   const preflightWarnings: string[] = [];
 
   const addTimeline = (
@@ -138,14 +140,16 @@ export async function runOrchestrator(
     result: AgentRunLike,
     inputSummary: Record<string, unknown> = {}
   ) => {
-    await prisma.agentRun.create({
+    return prisma.agentRun.create({
       data: {
         contentItemId: input.contentItemId,
         contentVersionId: versionId,
         agentName,
         agentRole: agentName,
         inputSummary: JSON.stringify(inputSummary),
-        outputRaw: redactLLMDiagnostic(result.rawResponse).substring(0, 4000) || null,
+        outputRaw: (agentName === "reviewer" && result.valid
+          ? redactLLMDiagnostic(result.rawResponse)
+          : redactLLMDiagnostic(result.rawResponse).substring(0, 4000)) || null,
         outputValid: result.valid,
         validationError: result.validationError,
         modelId: result.modelId,
@@ -519,7 +523,10 @@ export async function runOrchestrator(
       findingsCount: reviewerResult.output.findings.length,
       rulebookVersionId: rulebookVersion.id,
     });
-    await persistRun(currentVersionId, "reviewer", reviewerResult, {
+    // Save complete canonical validated output, not truncated diagnostic JSON.
+    const reviewerRun = await persistRun(currentVersionId, "reviewer", {
+      ...reviewerResult, rawResponse: JSON.stringify(reviewerResult.output),
+    }, {
       cycle,
       rulebookRuleCount: ruleIds.length,
     });
@@ -544,14 +551,22 @@ export async function runOrchestrator(
     if (input.signal?.aborted) return failClosed("pipeline", "orchestrator", interruptionReason()!);
 
     if (effectiveVerdict === "PASS") {
+      const approvedContentDigest = contentDigest(currentDraft!, JSON.stringify(writerResult.output!.citedFactIds), input.format);
+      const reviewedPolicyDigest = policyDigest(rulebookVersion);
       try {
         await prisma.$transaction(async (tx) => commitPolicyPass({
           updateStatus: () => tx.contentItem.update({ where: { id: input.contentItemId }, data: { status: "review_passed" } }),
           appendAudit: () => tx.auditEvent.create({ data: {
             campaignId: input.campaignId, contentItemId: input.contentItemId,
+            contentVersionId: currentVersionId,
             actor: "orchestrator", action: "review_passed", verdict: "PASS",
             rulebookVersion: rulebookVersionId,
-            details: JSON.stringify({ cycle, verdict: "PASS", format: input.format, rulebookVersionId }),
+            details: JSON.stringify({ cycle, verdict: "PASS", format: input.format, rulebookVersionId,
+              contentVersionId: currentVersionId,
+              contentDigest: approvedContentDigest, policyDigest: reviewedPolicyDigest,
+              sourceDigest: sourceDigest(input.facts), reviewerRunId: reviewerRun.id,
+              reviewerDigest: sha256(reviewerRun.outputRaw ?? ""),
+            }),
           } }),
         }, input.signal));
       } catch (error) {
