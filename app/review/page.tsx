@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClientReview, HumanDecision } from "@/lib/approval-types";
+import { DownloadIcon, FormatIcon, KatavaMark, ShieldCheckIcon } from "../ui-icons";
 
 export default function ClientPortal() {
   const credential = useRef("");
@@ -83,22 +84,23 @@ export default function ClientPortal() {
       setChoice("");
     } finally { setBusy(false); }
   };
-  return <main className="min-h-screen bg-zinc-50 text-zinc-900 px-4 py-8">
+  return <main className="min-h-screen bg-[#f7f7fb] px-4 py-6 text-zinc-900 sm:py-10">
     <div className="mx-auto max-w-3xl space-y-5">
-      <header><p className="text-sm font-medium text-zinc-500">Katava Studio · Client Review</p>
-        <h1 className="text-2xl font-semibold mt-1">Review an exact draft version</h1>
-        <p className="mt-2 text-sm text-zinc-600">AI policy PASS is not human approval. You must make an explicit decision below. This portal never publishes content.</p></header>
+      <header>
+        <div className="mb-7 flex items-center gap-3"><KatavaMark className="h-10 w-10" /><div><p className="font-bold">Katava Studio</p><p className="text-xs text-zinc-500">Private client review</p></div></div>
+        <div className="inline-flex items-center gap-2 rounded-full bg-violet-100 px-3 py-1.5 text-xs font-semibold text-violet-800"><ShieldCheckIcon className="h-4 w-4" /> EXACT-VERSION APPROVAL</div>
+        <h1 className="mt-4 text-3xl font-bold tracking-tight">Review. Decide. Export.</h1>
+        <p className="mt-2 text-sm leading-6 text-zinc-600">Check the draft and its cited evidence, then make an explicit decision. Reading this page never approves content, and this portal never publishes it.</p>
+      </header>
       {busy && <p role="status" className="rounded-lg border bg-white p-4 text-sm">Loading or saving review…</p>}
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div>}
       {notice && <p role="status" className="rounded-lg bg-green-50 border border-green-200 text-green-800 p-4 text-sm">{notice}</p>}
       {review && <>
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 space-y-3">
-          <h2 className="text-lg font-semibold">{review.campaignName} · {review.format}</h2>
-          <p className="text-xs font-mono break-all">Version {review.versionNumber} · {review.contentVersionId}</p>
-          <p className="text-xs text-zinc-600">Link expires: {new Date(review.expiresAt).toLocaleString()}{expired && " · EXPIRED: no decisions accepted"}</p>
-          <div className="rounded border border-zinc-200 bg-zinc-50 p-4 text-sm whitespace-pre-wrap break-words">{review.draftText}</div>
-          <p className="text-xs text-zinc-600">Policy: {review.policy.rulebookId} v{review.policy.version} · reviewed {new Date(review.policy.reviewedAt).toLocaleString()}</p>
-          <p className="text-xs text-zinc-600">{review.policy.authority}</p>
+        <section className="space-y-4 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-3"><FormatIcon format={review.format} className="h-12 w-12 shrink-0" /><div><h2 className="text-lg font-bold">{review.campaignName}</h2><p className="mt-0.5 text-xs capitalize text-zinc-500">{review.format} · version {review.versionNumber}</p></div></div>
+          <div className={`rounded-xl px-3 py-2 text-xs ${expired ? "bg-red-50 text-red-800" : "bg-zinc-50 text-zinc-600"}`}>{expired ? "This review link has expired; no decisions are accepted." : `Review link expires ${new Date(review.expiresAt).toLocaleString()}`}</div>
+          <div className="max-h-[36rem] overflow-auto whitespace-pre-wrap break-words rounded-2xl border border-zinc-200 bg-zinc-50/70 p-5 text-sm leading-7">{review.draftText}</div>
+          <details className="text-xs text-zinc-500"><summary>Version and policy evidence</summary><p className="mt-2 break-all font-mono">{review.contentVersionId}</p><p className="mt-2">Policy: {review.policy.rulebookId} v{review.policy.version} · reviewed {new Date(review.policy.reviewedAt).toLocaleString()}</p><p className="mt-1">{review.policy.authority}</p></details>
         </section>
         <section className="rounded-lg border border-zinc-200 bg-white p-5 space-y-3">
           <h2 className="font-semibold">Cited product-sheet evidence</h2>
@@ -134,19 +136,19 @@ export default function ClientPortal() {
           </>}
           <p className="text-xs text-zinc-600">{review.disclaimer}</p>
         </section>
-        {review.decision && review.decision.status === "approved" && <section className="rounded-lg border border-green-200 bg-green-50 p-5 space-y-3">
-          <h2 className="font-semibold text-green-900">Export approved content (M5)</h2>
-          <p className="text-sm text-green-800">Download a file for this exact approved version. Each export is audited. Nothing is published to any platform.</p>
-          {exportNotice && <p role="status" className="rounded bg-white border border-green-200 p-3 text-sm text-green-800">{exportNotice}</p>}
+        {review.decision && review.decision.status === "approved" && <section className="space-y-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+          <h2 className="font-bold text-emerald-950">Your approved file is ready</h2>
+          <p className="text-sm leading-6 text-emerald-800">Download this exact approved version. Each export is recorded; nothing is published to any platform.</p>
+          {exportNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-white p-3 text-sm text-emerald-800">{exportNotice}</p>}
           <div className="flex flex-wrap items-center gap-2">
             <select value={exportFormat} onChange={e => setExportFormat(e.target.value as "markdown" | "json" | "text")} disabled={exporting}
-              className="rounded border border-green-300 bg-white p-2 text-sm">
+              aria-label="Export file format" className="rounded-xl border border-emerald-300 bg-white px-3 py-2.5 text-sm">
               <option value="markdown">Markdown (.md)</option>
               <option value="json">JSON (.json)</option>
               <option value="text">Plain text (.txt)</option>
             </select>
             <button disabled={exporting} onClick={() => void doExport(exportFormat)}
-              className="rounded bg-green-700 text-white px-4 py-2 text-sm disabled:opacity-50">{exporting ? "Exporting…" : "Download approved export"}</button>
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50"><DownloadIcon className="h-4 w-4" />{exporting ? "Preparing file…" : "Download approved file"}</button>
           </div>
         </section>}
       </>}

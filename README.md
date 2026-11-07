@@ -4,7 +4,7 @@ Source-grounded creator agents for multi-format marketing content, with determin
 
 Built for **Tencent Cloud Hackathon Indonesia 2026 — Challenge C: The Creator Agent**.
 
-> **Prototype status (2026-11-07):** Milestones 1–4 are implemented and locally verified. The M4 production build, real HTTP approval flow and real browser client/manager acceptance passed. Deployment is **not** implemented. AI `PASS` is an internal demo-policy verdict, not human approval. Human approval applies only to an exact reviewed version and does not publish anything. The browser approvals recorded during acceptance are **automated test decisions**, not genuine customer sign-off.
+> **Prototype status (2026-11-07):** Generation, deterministic review, three output formats, exact-version human approval and approval-gated export are implemented. The app is deployed through WorkBuddy App Publishing with SQLite. Real gateway, route-handler and browser acceptance evidence is recorded below. AI `PASS` is an internal demo-policy verdict, not human approval. Approval and export apply only to an exact reviewed version; neither publishes content. Browser approvals recorded during acceptance are **automated test decisions**, not genuine customer sign-off.
 
 ## What it does
 
@@ -21,6 +21,8 @@ Katava Studio takes a product sheet as its single source of truth and produces c
 - `/review` shows the exact draft and cited source excerpts. Opening/refreshing never approves; approve/reject/request-changes requires explicit confirmation.
 - Review credentials are random, hash-only in storage, expiring and consumed by one final decision. Content, format, citations, source facts, policy and canonical Reviewer evidence are fingerprint-bound.
 - Editing appends an unreviewed version, revokes old links and retains prior decisions as history only. No publication endpoint or external publisher is implemented.
+- Approved exact versions can be exported as Markdown, JSON or plain text. Every export is integrity-checked and recorded; export is not publication.
+- Public health and generation responses expose only infrastructure-neutral AI availability, never provider, model, endpoint or credential-presence details.
 
 The rulebook (`KATAVA-DEMO-GUARDRAILS` v0.1) is an **internal demo policy**. It is **not** Indonesian law, a BPOM regulation, a halal certification standard, or legal advice.
 
@@ -65,6 +67,10 @@ Manager routes use a separate secret plus exact same-origin JSON requests; clien
 
 **Demo policy state:** exactly one active rulebook must be `KATAVA-DEMO-GUARDRAILS` v0.1 with six rules. Earlier unit-test fallbacks could leave a synthetic `KATAVA-TEST-GUARDRAILS` active, which made real generations show test policy text; the suites now restore the seeded policy instead and clean up only their own uniquely tagged fallback. A deterministic regression check enforces this. If an older local database still has a synthetic active rulebook, re-run `npm run db:seed` only on a fresh database, or explicitly reactivate the seeded version. Never delete existing campaign/approval evidence.
 
+### Approval-gated export (M5)
+
+After the exact current version receives explicit approval, manager and client controls can download Markdown, JSON or plain-text artifacts. The server rechecks content, source, policy, Reviewer and approval integrity before every export, then appends an `ExportRecord` and `content_exported` audit event. Rejected, revision-requested, stale, missing or tampered versions cannot export. Files are release artifacts only; Katava has no social-media publisher.
+
 ### Build environment limitation
 
 The agent-managed Windows environment can block Next's generated-file cleanup with `SAFE_DELETE_BULK_CONFIRM_REQUIRED` at `.next/trace-build`. Do not disable the safety guard or manually delete project data. Run `npm run build` in an external terminal from `katava-studio`, then `npm start -- -p 3001` and open `http://localhost:3001`. Native Windows SWC warnings are expected here; Webpack/WASM is the established fallback. The M4 production build passed: compiled in 24.6s, TypeScript in 6.9s, 5 static pages, and 9 routes including the four M4 endpoints and `/review`.
@@ -91,12 +97,13 @@ The agent-managed Windows environment can block Next's generated-file cleanup wi
 - Deterministic tests inject a **scripted transport** that is forbidden in production. They are contract evidence only, never proof of a working LLM integration.
 - Live tests are gated behind `KATAVA_RUN_LIVE_LLM_TESTS=1` and require a verified gateway first.
 - The 90-second budget is a **per-item execution deadline** after queue admission, not a whole-batch completion guarantee.
-- M4 verification: **99 deterministic tests passed**; strict TypeScript, ESLint and `git diff --check` passed. The gated M4 suite passed **37/37**, including fresh real Instagram/Reels generation, hash-bound link issuance, explicit **automated fixture decisions**, replay rejection and edit invalidation. Those route-handler tests are not production-server or customer-sign-off evidence.
-- Fresh real two-format M4 generation took 26.6 seconds: both PASS in one cycle, four real agent/rule-engine runs each, five Instagram/four Reels resolved citations. All test decisions are explicitly labeled automated and their uniquely owned fixtures cleaned up.
+- Current deterministic verification: **116 tests passed**, including public infrastructure-disclosure regression coverage; strict TypeScript, ESLint and `git diff --check` passed. The gated M4 suite passed **37/37**, including fresh real Instagram/Reels generation, hash-bound link issuance, explicit **automated fixture decisions**, replay rejection and edit invalidation. Those route-handler tests are not customer-sign-off evidence.
+- Latest real two-format rehearsal took **26.049 seconds**: both PASS in one cycle, four real agent/rule-engine runs each, five Instagram/four Reels resolved citations. All test decisions are explicitly labeled automated and their uniquely owned fixtures cleaned up.
+- M5 live deployment acceptance verified fresh real generation, review-link issuance, explicit automated approval, manager Markdown export, client JSON export, and invalid-token rejection. Exported artifacts retained `published: false`.
 - **Production HTTP acceptance:** a fresh real Instagram PASS (1 cycle, 457-character Indonesian draft, five resolved citations) was generated through the running compiled server. Manager overview was eligible only after that PASS; link issuance returned 201; a real browser opened `/review#token=…`, cleared the fragment before API calls, kept no credential in localStorage/sessionStorage/DOM, showed the exact version and `KATAVA-DEMO-GUARDRAILS`, then required select → confirm to approve. Replay returned 409; manager overview showed `client_approved` with one consumed link; edit produced a new unreviewed v2 and the old session returned 410. Unauthorized 401, foreign origin 403 and cross-site 403 were verified. Nothing was published. These are automated browser/HTTP decisions, **not real customer approval**.
 - **Browser layout:** desktop 1440px and mobile 390px rendered with no horizontal overflow; `/review` served `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, `X-Robots-Tag: noindex, nofollow` and `Cache-Control: no-store`.
-- **Gateway residual risk:** one fresh real generation timed out and one browser generation returned an invalid Reviewer severity; both correctly failed closed as `review_incomplete`, with no fabricated PASS. A retry succeeded. Before the surprise test, verify `npm run verify:llm` and keep the demo policy active.
-- This local MVP has manager-key authorization and token-scoped client review, but **no general multi-user authentication, tenant isolation, global rate limiting or durable queue**. Existing generation/raw-audit routes remain local-only. Do not expose publicly without those controls.
+- **Gateway residual risk:** earlier fresh generations encountered a timeout and an invalid Reviewer severity; both correctly failed closed as `review_incomplete`, with no fabricated PASS. Transient timeout/network/selected HTTP failures now receive at most one bounded retry under the caller's deadline. Invalid output is never retried into a fabricated PASS. Before the surprise test, verify `npm run verify:llm` and keep the demo policy active.
+- This prototype has manager-key authorization and token-scoped client review, but **no general multi-user authentication, tenant isolation, global rate limiting or durable queue**. The public sandbox is demonstration hosting, not a production multi-tenant deployment; open generation can consume the configured AI quota, and redeployment may start with a fresh SQLite database.
 
 ## Repository layout
 
@@ -113,10 +120,11 @@ The agent-managed Windows environment can block Next's generated-file cleanup wi
 | `lib/ingestion.ts` | Source-backed fact extraction with excerpts |
 | `lib/llm-adapter.ts` | OpenAI-compatible adapter, timeouts, redaction |
 | `lib/approval-service.ts` / `content-integrity.ts` | Exact-version evidence, links, atomic decisions and edit invalidation |
+| `lib/export-service.ts` / `ExportRecord` | Integrity-gated artifacts and append-only export evidence |
 | `lib/approval-http.ts` | Manager authorization, same-origin validation and safe errors |
 | `app/approval-controls.tsx` | Manager link/decision/edit controls |
 | `app/review/` | Minimal client review and explicit confirmation UI |
 | `app/api/approvals/` / `app/api/review/` | Manager operations and token-scoped client routes |
 | `scripts/setup-approval.ts` | Safe idempotent local manager credential setup |
 | `prisma/` | Existing schema and demo seed; M4 requires no migration |
-| `tests/` | Pipeline and Milestones 2–4 contract/gated live suites |
+| `tests/` | Pipeline and Milestones 2–5 contract/gated live suites |

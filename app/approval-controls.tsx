@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { ApprovalOverview } from "@/lib/approval-types";
+import { DownloadIcon, ShieldCheckIcon } from "./ui-icons";
 
 export function ApprovalControls({ contentItemId, managerKey, draftText, onChanged }: {
   contentItemId: string; managerKey: string; draftText: string; onChanged: () => void;
@@ -97,12 +98,11 @@ export function ApprovalControls({ contentItemId, managerKey, draftText, onChang
       setError(`${e instanceof Error ? e.message : "Export failed."} No export was produced.`);
     } finally { setExporting(false); }
   };
-  return <section className="rounded-lg border border-zinc-300 bg-zinc-50 p-4 space-y-3 text-sm text-zinc-800" aria-label="Human approval controls">
-    <h3 className="font-semibold">Human approval · manager controls</h3>
-    <p className="text-xs text-zinc-600">One exact reviewed version per link; one final human decision. No automatic publishing. The manager key is held in browser memory only.</p>
-    {!managerKey.trim() && <p className="text-xs text-amber-900">Enter the separate manager key above to inspect or issue review links. This is not your model API key.</p>}
+  return <section className="space-y-4 rounded-2xl border border-violet-200 bg-violet-50/45 p-5 text-sm text-zinc-800" aria-label="Human approval controls">
+    <div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white"><ShieldCheckIcon className="h-5 w-5" /></span><div><h3 className="font-bold">Approve & export</h3><p className="mt-1 text-xs leading-5 text-zinc-600">Send this exact reviewed version for one final human decision. Approval unlocks download—never automatic publishing.</p></div></div>
+    {!managerKey.trim() && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950">Open <strong>Manager access</strong> above and enter the separate manager credential to continue.</p>}
     <button disabled={busy || !managerKey.trim()} onClick={() => void act({ action: "overview" })}
-      className="rounded border border-zinc-300 bg-white px-3 py-2 disabled:opacity-50">{busy ? "Working…" : "Inspect / refresh human approval"}</button>
+      className="rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-violet-700 disabled:opacity-45">{busy ? "Checking persisted state…" : overview ? "Refresh approval state" : "Check approval state"}</button>
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-800 break-words">{error}</p>}
     {notice && <p role="status" className="rounded bg-blue-50 p-3 text-blue-900">{notice}</p>}
     {url && <div className="space-y-2">
@@ -134,18 +134,18 @@ export function ApprovalControls({ contentItemId, managerKey, draftText, onChang
       {overview.approvals.length > 0 && <details className="text-xs space-y-2"><summary className="cursor-pointer font-medium">Immutable decision history ({overview.approvals.length})</summary>
         {overview.approvals.map(a => <div key={a.id} className="border-t py-2 break-words"><p>{a.status} · {a.contentVersionId} · {new Date(a.createdAt).toLocaleString()}</p><p>{a.comment}</p></div>)}
       </details>}
-      {overview.currentApproval && overview.currentVersionId && <div className="rounded border border-green-200 bg-green-50 p-3 space-y-2">
-        <p className="text-xs font-medium text-green-900">Export approved content (M5)</p>
-        <p className="text-xs text-green-800">Download a file for this exact approved version. Each export is audited. Nothing is published to any platform.</p>
+      {overview.currentApproval && overview.currentVersionId && <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-sm font-bold text-emerald-950">Approved content is ready</p>
+        <p className="text-xs leading-5 text-emerald-800">Download this exact approved version. Every export is recorded; nothing is sent to a platform.</p>
         <div className="flex flex-wrap items-center gap-2">
           <select value={exportFormat} onChange={e => setExportFormat(e.target.value as "markdown" | "json" | "text")} disabled={exporting}
-            className="rounded border border-green-300 bg-white p-2 text-xs">
+            aria-label="Export file format" className="rounded-xl border border-emerald-300 bg-white px-3 py-2.5 text-xs">
             <option value="markdown">Markdown (.md)</option>
             <option value="json">JSON (.json)</option>
             <option value="text">Plain text (.txt)</option>
           </select>
           <button disabled={exporting} onClick={() => void doExport(exportFormat)}
-            className="rounded bg-green-700 text-white px-3 py-2 text-xs disabled:opacity-50">{exporting ? "Exporting…" : "Download approved export"}</button>
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50"><DownloadIcon className="h-4 w-4" />{exporting ? "Preparing file…" : "Download approved file"}</button>
         </div>
       </div>}
       {overview.currentVersionId && <>

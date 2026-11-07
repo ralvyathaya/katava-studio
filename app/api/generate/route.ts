@@ -2,7 +2,7 @@
 // NDJSON streams actual events; regular JSON preserves the single-item API.
 import { NextRequest, NextResponse } from "next/server";
 import { generateBatch, generationRequestSchema } from "@/lib/generation";
-import { getLLMStatus, isLLMConfigured, redactLLMDiagnostic } from "@/lib/llm-adapter";
+import { isLLMConfigured, redactLLMDiagnostic } from "@/lib/llm-adapter";
 import type { GenerationEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
   }, { status: 400 });
 
   if (!isLLMConfigured()) return NextResponse.json({
-    error: "LLM not configured", message: "Configure OPENAI_API_KEY in .env. No fake output will be generated.",
-    llm: getLLMStatus(),
+    error: "AI service not configured", message: "The AI service is unavailable. No output was generated.",
+    llm: { configured: false },
   }, { status: 503 });
 
   const streaming = request.headers.get("accept")?.includes("application/x-ndjson");
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     const batch = await generateBatch(parsed.data, { signal: request.signal });
     const single = batch.results.length === 1 ? batch.results[0] : undefined;
     return NextResponse.json({
-      success: true, ...batch, ...(single ?? {}), llm: getLLMStatus(),
+      success: true, ...batch, ...(single ?? {}), llm: { configured: true },
     });
   } catch (error) {
     return NextResponse.json({ error: "Generation failed",

@@ -626,3 +626,20 @@ describe("T19 — Rule sources are labelled as demo policy, never law", () => {
     }
   });
 });
+
+describe("Public AI service status", () => {
+  it("never exposes provider, model, endpoint or credential-presence details", async () => {
+    const { NextRequest } = await import("next/server");
+    const { GET } = await import("../app/api/health/route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/health"));
+    assert.equal(response.status, 200);
+    const raw = await response.text();
+    const data = JSON.parse(raw) as { llm: Record<string, unknown>; verification: unknown };
+    assert.deepEqual(Object.keys(data.llm), ["configured"]);
+    assert.equal(data.verification, null);
+    for (const privateValue of [process.env.OPENAI_BASE_URL, process.env.OPENAI_MODEL]) {
+      if (privateValue) assert.ok(!raw.includes(privateValue), "Public status must not contain configured infrastructure identifiers");
+    }
+    assert.ok(!/provider|baseUrl|keyPresent|model/i.test(JSON.stringify(data.llm)));
+  });
+});
