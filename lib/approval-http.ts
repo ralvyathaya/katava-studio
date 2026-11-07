@@ -53,6 +53,13 @@ export async function approvalBody(request: Request): Promise<unknown> {
     catch { throw new ApprovalError("invalid_json", 400, "Invalid JSON body."); }
   } finally { reader.releaseLock(); }
 }
+// M5: raw file download for approved exports. Same security headers as JSON;
+// Content-Disposition attachment prevents inline rendering in browser context.
+export function approvalFile(content: string, filename: string, mimeType: string) {
+  return new Response(content, { status: 200, headers: {
+    ...headers, "Content-Type": mimeType, "Content-Disposition": `attachment; filename="${filename}"`,
+  } });
+}
 export function approvalFailure(error: unknown): Response {
   if (error instanceof ApprovalError) return approvalJson({ error: error.code, message: error.message }, error.httpStatus);
   if (error instanceof z.ZodError) return approvalJson({ error: "invalid_request", message: "Invalid review request.",
