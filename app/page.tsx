@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { readGenerationStream } from "@/lib/generation-stream";
+import { ApprovalControls } from "./approval-controls";
 import type {
   ContentFormat,
   Fact,
@@ -140,6 +141,7 @@ interface AuditEvent {
 }
 
 interface AuditTrail {
+  contentItem: { id: string; status: string };
   productFacts: Fact[];
   versions: AuditVersion[];
   agentRuns: AgentRun[];
@@ -172,6 +174,9 @@ export default function Home() {
   const [timeoutMs, setTimeoutMs] = useState(90000);
   const [campaignGoal, setCampaignGoal] = useState("Product launch");
   const [audience, setAudience] = useState("Indonesian tea enthusiasts");
+  const [managerKey, setManagerKey] = useState("");
+  const [managerEpoch, setManagerEpoch] = useState(0);
+  const updateManagerKey = (value: string) => { setManagerKey(value); setManagerEpoch(epoch => epoch + 1); };
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<LiveItem[]>([]);
   const [batch, setBatch] = useState<{
@@ -618,6 +623,15 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="rounded-lg border border-zinc-200 bg-white p-4 space-y-2">
+          <label htmlFor="manager-key" className="text-sm font-medium text-zinc-800">Human approval manager key (local setup)</label>
+          <div className="flex flex-wrap gap-2"><input id="manager-key" type="password" autoComplete="off" value={managerKey}
+            onChange={e => updateManagerKey(e.target.value)} placeholder="KATAVA_MANAGER_KEY, not your model API key"
+            className="flex-1 min-w-0 rounded border border-zinc-300 p-2 text-sm text-zinc-900" />
+            <button onClick={() => updateManagerKey("")} className="rounded border px-3 py-2 text-xs text-zinc-700">Clear key</button></div>
+          <p className="text-xs text-zinc-500">Set a separate KATAVA_MANAGER_KEY in .env (at least 32 characters). Run npm run setup:approval to generate one if absent or blank. Copy it from your local .env, never share or commit it. Browser memory only; manager actions fail closed if unconfigured. This MVP is local-only, not a public multi-user authentication system.</p>
+        </section>
+
         {error && (
           <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-4">
             <h3 className="text-sm font-semibold text-red-800">Run notice</h3>
@@ -670,12 +684,11 @@ export default function Home() {
               event.output && typeof event.output === "object" &&
               "draftText" in event.output && typeof event.output.draftText === "string"
             )?.output;
-            const draftText = result?.finalDraft || (liveDraft && typeof liveDraft === "object" &&
+            const draftText = audit?.versions.at(-1)?.draftText || result?.finalDraft || (liveDraft && typeof liveDraft === "object" &&
               "draftText" in liveDraft && typeof liveDraft.draftText === "string" ? liveDraft.draftText : undefined);
             const localInterruption = item.state === "connection_lost" || item.state === "locally_interrupted";
-            const resultStatus = result?.status === "awaiting_client_approval" || result?.status === "client_approved"
-              ? "POLICY REVIEW RESULT · NOT HUMAN APPROVED"
-              : result?.status.replace(/_/g, " ").toUpperCase();
+            const persistedStatus = audit?.contentItem?.status ?? result?.status;
+            const resultStatus = persistedStatus?.replace(/_/g, " ").toUpperCase();
             return (
           <section key={item.contentItemId} className="min-w-0 space-y-4 rounded-lg border border-zinc-200 bg-white p-4">
             <div className="space-y-2">
@@ -722,7 +735,7 @@ export default function Home() {
                 </div>
               )}
               <p className="mt-2 text-xs">
-                Human approval is Milestone 4 and is not available here. This Quick Test does not approve or publish content.
+                AI PASS is a policy verdict only. Use the version-bound human approval controls below; approval never publishes content.
               </p>
               {result.rulebookVersionId && (
                 <p className="mt-2 text-xs font-mono break-all">Rulebook: {result.rulebookVersionId}</p>
@@ -809,13 +822,17 @@ export default function Home() {
             {draftText && (
               <div className="bg-white rounded-lg border border-zinc-200 p-4">
                 <h3 className="text-lg font-medium text-zinc-900 mb-3">
-                  {result?.finalDraft ? "Final Draft · not approved or published" : "Latest Streamed Draft · not a final verdict"}
+                  {audit?.versions.length ? "Current Persisted Draft · approval is version-bound; not published" : result?.finalDraft ? "Policy-reviewed Draft · not human approved or published" : "Latest Streamed Draft · not a final verdict"}
                 </h3>
                 <div className="bg-zinc-50 rounded-md p-4 text-sm text-zinc-800 whitespace-pre-wrap break-words">
                   {draftText}
                 </div>
               </div>
             )}
+
+            {result && <ApprovalControls key={`${item.contentItemId}:${managerEpoch}`} contentItemId={item.contentItemId} managerKey={managerKey}
+              draftText={audit?.versions.at(-1)?.draftText ?? draftText ?? ""}
+              onChanged={() => void inspectAudit(item.contentItemId)} />}
 
             {result?.findings && result.findings.length > 0 && (
               <div className="bg-white rounded-lg border border-zinc-200 p-6">
@@ -1046,8 +1063,8 @@ export default function Home() {
 
         <p className="text-xs text-zinc-400 pb-6">
           Katava Studio · Demo rulebook v0.1 is an internal prototype policy,
-          not BPOM/halal regulation or legal advice. Human approval is Milestone 4;
-          neither approval nor publication is available in this Quick Test.
+          not BPOM/halal regulation or legal advice. Human decisions are explicit, version-bound,
+          and recorded via private expiring links. No automatic publishing is available.
         </p>
       </main>
     </div>
