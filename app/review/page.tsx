@@ -11,6 +11,9 @@ export default function ClientPortal() {
   const [choice, setChoice] = useState<HumanDecision | "">("");
   const [now, setNow] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<"markdown" | "json" | "text">("markdown");
+  const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!credential.current) { setError("No review credential. Open the full review link supplied by the manager; refreshing after its fragment is cleared requires reopening that original link."); return; }
     setBusy(true); setError(null);
@@ -36,6 +39,33 @@ export default function ClientPortal() {
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [refresh]);
   const expired = review ? now >= Date.parse(review.expiresAt) : true;
+  const doExport = async (format: "markdown" | "json" | "text") => {
+    if (exporting || !review || !review.decision || review.decision.status !== "approved") return;
+    setExporting(true); setExportNotice(null);
+    try {
+      const response = await fetch("/api/review/export", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        referrerPolicy: "no-referrer",
+        body: JSON.stringify({ token: credential.current, contentVersionId: review.contentVersionId, format }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message ?? `HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? `katava-export.${format === "markdown" ? "md" : format}`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(objectUrl);
+      setExportNotice("Downloaded approved content. Export is recorded in the audit trail. Nothing was published.");
+    } catch (e) {
+      setExportNotice(`${e instanceof Error ? e.message : "Export failed."} No export was produced.`);
+    } finally { setExporting(false); }
+  };
   const submit = async () => {
     if (!review || !choice || busy || expired || !review.canDecide) return;
     setBusy(true); setError(null); setNotice(null);
@@ -104,6 +134,21 @@ export default function ClientPortal() {
           </>}
           <p className="text-xs text-zinc-600">{review.disclaimer}</p>
         </section>
+        {review.decision && review.decision.status === "approved" && <section className="rounded-lg border border-green-200 bg-green-50 p-5 space-y-3">
+          <h2 className="font-semibold text-green-900">Export approved content (M5)</h2>
+          <p className="text-sm text-green-800">Download a file for this exact approved version. Each export is audited. Nothing is published to any platform.</p>
+          {exportNotice && <p role="status" className="rounded bg-white border border-green-200 p-3 text-sm text-green-800">{exportNotice}</p>}
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={exportFormat} onChange={e => setExportFormat(e.target.value as "markdown" | "json" | "text")} disabled={exporting}
+              className="rounded border border-green-300 bg-white p-2 text-sm">
+              <option value="markdown">Markdown (.md)</option>
+              <option value="json">JSON (.json)</option>
+              <option value="text">Plain text (.txt)</option>
+            </select>
+            <button disabled={exporting} onClick={() => void doExport(exportFormat)}
+              className="rounded bg-green-700 text-white px-4 py-2 text-sm disabled:opacity-50">{exporting ? "Exporting…" : "Download approved export"}</button>
+          </div>
+        </section>}
       </>}
       <button onClick={() => void refresh()} disabled={busy} className="rounded border border-zinc-300 bg-white px-4 py-2 text-sm disabled:opacity-50">Refresh persisted review</button>
       <p className="text-xs text-zinc-500">Do not forward this private bearer link to unintended recipients. No account login or external identity verification is implied.</p>

@@ -14,6 +14,8 @@ export function ApprovalControls({ contentItemId, managerKey, draftText, onChang
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState(draftText);
   const [acknowledged, setAcknowledged] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"markdown" | "json" | "text">("markdown");
+  const [exporting, setExporting] = useState(false);
   const inFlight = useRef<AbortController | null>(null);
   // Parent remounts on item/credential epoch changes, without putting a secret in
   // the React key. Unmount aborts old requests and discards all private state.
@@ -68,6 +70,33 @@ export function ApprovalControls({ contentItemId, managerKey, draftText, onChang
       }
     } finally { if (!controller.signal.aborted) setBusy(false); }
   };
+  const doExport = async (format: "markdown" | "json" | "text") => {
+    if (exporting || !overview?.currentVersionId || !overview.currentApproval) return;
+    setExporting(true); setError(null); setNotice(null);
+    try {
+      const response = await fetch(`/api/approvals/${encodeURIComponent(contentItemId)}`, {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Katava-Manager-Key": managerKey.trim() },
+        body: JSON.stringify({ action: "export", contentVersionId: overview.currentVersionId, format }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message ?? `HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? `katava-export.${format === "markdown" ? "md" : format}`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(objectUrl);
+      setNotice(`Exported approved version as ${format}. Audit recorded. Nothing was published.`);
+      onChanged();
+    } catch (e) {
+      setError(`${e instanceof Error ? e.message : "Export failed."} No export was produced.`);
+    } finally { setExporting(false); }
+  };
   return <section className="rounded-lg border border-zinc-300 bg-zinc-50 p-4 space-y-3 text-sm text-zinc-800" aria-label="Human approval controls">
     <h3 className="font-semibold">Human approval · manager controls</h3>
     <p className="text-xs text-zinc-600">One exact reviewed version per link; one final human decision. No automatic publishing. The manager key is held in browser memory only.</p>
@@ -105,6 +134,20 @@ export function ApprovalControls({ contentItemId, managerKey, draftText, onChang
       {overview.approvals.length > 0 && <details className="text-xs space-y-2"><summary className="cursor-pointer font-medium">Immutable decision history ({overview.approvals.length})</summary>
         {overview.approvals.map(a => <div key={a.id} className="border-t py-2 break-words"><p>{a.status} · {a.contentVersionId} · {new Date(a.createdAt).toLocaleString()}</p><p>{a.comment}</p></div>)}
       </details>}
+      {overview.currentApproval && overview.currentVersionId && <div className="rounded border border-green-200 bg-green-50 p-3 space-y-2">
+        <p className="text-xs font-medium text-green-900">Export approved content (M5)</p>
+        <p className="text-xs text-green-800">Download a file for this exact approved version. Each export is audited. Nothing is published to any platform.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={exportFormat} onChange={e => setExportFormat(e.target.value as "markdown" | "json" | "text")} disabled={exporting}
+            className="rounded border border-green-300 bg-white p-2 text-xs">
+            <option value="markdown">Markdown (.md)</option>
+            <option value="json">JSON (.json)</option>
+            <option value="text">Plain text (.txt)</option>
+          </select>
+          <button disabled={exporting} onClick={() => void doExport(exportFormat)}
+            className="rounded bg-green-700 text-white px-3 py-2 text-xs disabled:opacity-50">{exporting ? "Exporting…" : "Download approved export"}</button>
+        </div>
+      </div>}
       {overview.currentVersionId && <>
         <button onClick={() => { setEditing(!editing); setEdit(overview.draftText ?? draftText); }} disabled={busy} className="text-xs text-amber-900 underline">{editing ? "Cancel editing" : "Edit draft as a new unreviewed version"}</button>
         {editing && <div className="rounded border border-amber-300 bg-amber-50 p-3 space-y-3">
