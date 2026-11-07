@@ -273,3 +273,20 @@ export async function editDraft(itemId: string, input: z.input<typeof editDraftS
       message: "Edited draft saved as a new, unreviewed version. Prior approvals remain history only. Generate a new policy-reviewed item before requesting approval; this endpoint never pretends to re-review an edit." };
   });
 }
+
+// Milestone 5: an export is only permitted for an explicit APPROVED decision that
+// binds the exact current version. Re-runs the same integrity evidence used for
+// approval, so stale or tampered drafts fail closed before any file is produced.
+export async function approvedExportable(itemId: string, versionId: string) {
+  return prisma.$transaction(async tx => {
+    const item = await tx.contentItem.findUnique({ where: { id: itemId } });
+    if (!item) fail("not_found", 404, "Content item not found.");
+    const version = await latest(tx, itemId);
+    if (!version || version.id !== versionId) fail("stale_version", 409, "The selected draft is not the current version. Export requires the exact approved version.");
+    const approval = await tx.approval.findFirst({ where: { contentItemId: itemId, contentVersionId: versionId, status: "approved" }, orderBy: { createdAt: "desc" } });
+    if (!approval) fail("not_approved", 409, "No human approval exists for this exact version. Human approval is required before any export.");
+    // The four guards above throw via fail(); the non-null assertions document that.
+    const proof = await evidence(tx, item!, version!);
+    return { item: item!, version: version!, approval: approval!, proof };
+  });
+}

@@ -99,6 +99,7 @@ model ContentItem {
   reviewFindings ReviewFinding[]
   approvals   Approval[]
   auditEvents AuditEvent[]
+  exports     ExportRecord[]
 }
 
 model ContentVersion {
@@ -115,6 +116,7 @@ model ContentVersion {
   agentRuns       AgentRun[]
   reviewFindings  ReviewFinding[]
   approvals       Approval[]
+  exports         ExportRecord[]
 }
 
 // ─── Agent Runs & Review Findings ────────────────────────────────────
@@ -203,4 +205,27 @@ model Approval {
   contentItem     ContentItem    @relation(fields: [contentItemId], references: [id])
   contentVersion  ContentVersion @relation(fields: [contentVersionId], references: [id])
   reviewLink      ReviewLink?    @relation(fields: [reviewLinkId], references: [id])
+  exports         ExportRecord[]
+}
+
+// ─── Export Gate (Milestone 5) ─────────────────────────────────────
+// Append-only record of each human-approved content export. Export is only
+// permitted for an explicit APPROVED decision on the exact reviewed version.
+
+model ExportRecord {
+  id               String   @id @default(cuid())
+  contentItemId    String
+  contentVersionId String
+  approvalId       String
+  format           String   // "markdown" | "json" | "text"
+  contentHash      String   // SHA-256 of the exported bytes (integrity of the deliverable)
+  releasedBy       String   // "manager" | "client_via_link"
+  createdAt        DateTime @default(now())
+
+  contentItem      ContentItem    @relation(fields: [contentItemId], references: [id])
+  contentVersion   ContentVersion @relation(fields: [contentVersionId], references: [id])
+  approval         Approval       @relation(fields: [approvalId], references: [id])
+
+  @@index([contentItemId])
+  @@index([approvalId])
 }
