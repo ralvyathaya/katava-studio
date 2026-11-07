@@ -26,6 +26,9 @@ export function assertApprovalOrigin(request: Request) {
   }
 }
 export function assertManager(request: Request) {
+  // Demo-only open mode: lets judges self-serve the approval flow on the public
+  // demo link without sharing the operator secret. NEVER enable in production.
+  if (process.env.KATAVA_DEMO_OPEN_MANAGER === "1") return;
   const configured = process.env.KATAVA_MANAGER_KEY?.trim() ?? "";
   if (configured.length < 32) throw new ApprovalError("manager_not_configured", 503,
     "Set a separate KATAVA_MANAGER_KEY of at least 32 characters in .env. Manager actions fail closed until configured.");

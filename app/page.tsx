@@ -173,7 +173,8 @@ export default function Home() {
   const [timeoutMs, setTimeoutMs] = useState(90000);
   const [campaignGoal, setCampaignGoal] = useState("Product launch");
   const [audience, setAudience] = useState("Indonesian tea enthusiasts");
-  const [managerKey, setManagerKey] = useState("");
+  const DEMO_OPEN = process.env.NEXT_PUBLIC_DEMO_OPEN_MANAGER === "1";
+  const [managerKey, setManagerKey] = useState(DEMO_OPEN ? "demo-open" : "");
   const [managerEpoch, setManagerEpoch] = useState(0);
   const updateManagerKey = (value: string) => { setManagerKey(value); setManagerEpoch(epoch => epoch + 1); };
   const [loading, setLoading] = useState(false);
@@ -607,7 +608,7 @@ export default function Home() {
         </section>
 
         <details className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <summary className="text-sm font-semibold text-zinc-800">Manager access <span className="ml-1 font-normal text-zinc-500">· needed only for approval and export</span></summary>
+          <summary className="text-sm font-semibold text-zinc-800">Manager access <span className="ml-1 font-normal text-zinc-500">{DEMO_OPEN ? "· open demo mode — no credential needed" : "· needed only for approval and export"}</span></summary>
           <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr] lg:items-start">
             <div>
               <label htmlFor="manager-key" className="text-xs font-semibold text-zinc-700">Manager credential</label>
@@ -616,7 +617,7 @@ export default function Home() {
                 className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 focus:border-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-100" />
                 <button onClick={() => updateManagerKey("")} className="rounded-xl border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50">Clear</button></div>
             </div>
-            <p className="text-xs leading-5 text-zinc-500">Used only in browser memory for protected manager actions. This is separate from the AI credential and is never an account login. For local setup, run <code>npm run setup:approval</code> and copy the generated manager value from <code>.env</code>. Do not share or commit it.</p>
+            <p className="text-xs leading-5 text-zinc-500">Used only in browser memory for protected manager actions. This is separate from the AI credential and is never an account login. For local setup, run <code>npm run setup:approval</code> and copy the generated manager value from <code>.env</code>. Do not share or commit it.{DEMO_OPEN && " Demo mode is active on this link, so judges can run approval and export directly without a credential."}</p>
           </div>
         </details>
 
@@ -801,7 +802,7 @@ export default function Home() {
               </div>
             </details>
 
-            {result && <ApprovalControls key={`${item.contentItemId}:${managerEpoch}`} contentItemId={item.contentItemId} managerKey={managerKey}
+            {result && <ApprovalControls key={`${item.contentItemId}:${managerEpoch}`} contentItemId={item.contentItemId} managerKey={DEMO_OPEN ? "demo-open" : managerKey}
               draftText={audit?.versions.at(-1)?.draftText ?? draftText ?? ""}
               onChanged={() => void inspectAudit(item.contentItemId)} />}
 

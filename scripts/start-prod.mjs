@@ -5,7 +5,8 @@ import { execSync } from "node:child_process";
 
 const DATABASE_URL = "file:./dev.db";
 const port = process.env.PORT || "3000";
-const env = { ...process.env, DATABASE_URL };
+// Demo-only open manager mode for the public hackathon link (sandbox only).
+const env = { ...process.env, DATABASE_URL, KATAVA_DEMO_OPEN_MANAGER: "1" };
 const bin = (n) => `node_modules/.bin/${n}`;
 
 console.log("[start-prod] ensuring database and demo policy");

@@ -5,7 +5,10 @@
 import { execSync } from "node:child_process";
 
 const DATABASE_URL = "file:./dev.db";
-const env = { ...process.env, DATABASE_URL };
+// Demo-only open manager mode for the public hackathon link: lets judges
+// self-serve approval/export without the operator secret. Set here so it only
+// applies to the deployed sandbox build, never to local dev or the test runner.
+const env = { ...process.env, DATABASE_URL, NEXT_PUBLIC_DEMO_OPEN_MANAGER: "1", KATAVA_DEMO_OPEN_MANAGER: "1" };
 const bin = (n) => `node_modules/.bin/${n}`;
 
 function run(label, cmd) {
