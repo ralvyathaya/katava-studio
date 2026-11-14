@@ -3,6 +3,8 @@
 The LLM adapter uses the standard **OpenAI-compatible** chat completions contract. All secrets stay server-side in environment variables — no key is hardcoded, logged, or sent to the browser. There is exactly one provider configuration: `LLM_PROVIDER="openai"`.
 
 > **Local integration verified on 2026-11-06:** the user-selected OpenAI-compatible gateway and `glm-5.3-flash` returned a real non-empty completion and passed live end-to-end testing. This is historical verification, not a promise of ongoing availability. Keep the current `.env` values; the template's blank key/default endpoint must not overwrite a working setup. Current access is checked with `npm run verify:llm` or `/api/health?verify=1`.
+>
+> **Gateway migration verified on 2026-11-14:** the configured endpoint is now `https://api.cosmosin.io/v1` with `glm-5.3-flash`; `GET /models` returned 200 (51 models) and a real `POST /chat/completions` returned 200 via `npm run verify:llm`. The API key is unchanged and stays in the gitignored `.env`; `.env.example` keeps neutral OpenAI defaults. The previous `https://api.cosmoshub.tech/v1` host now rejects this key with HTTP 401, so a deployment carrying the old `.env` is not accessible until it is redeployed with the new endpoint.
 
 ---
 
