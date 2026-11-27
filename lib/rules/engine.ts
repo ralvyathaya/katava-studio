@@ -64,6 +64,19 @@ const INVENTION_INDICATORS: RegExp[] = [
   /from.*fields?/i,
 ];
 
+// A standalone "Tanpa klaim ..." list names topics the script should omit.
+// Keep the entire sentence for checking if it contains anything beyond topic names.
+function omitExcludedTopicLists(draftText: string): string {
+  return draftText.replace(/[^.!?\r\n]+/g, (sentence) => {
+    const note = /^(?:catatan(?: produksi)?\s*:\s*)?tanpa\s+klaim\s+(.+)$/i.exec(sentence.trim());
+    if (!note) return sentence;
+
+    const topics = note[1].split(/,\s*(?:(?:dan|atau)\s+)?|\s+(?:dan|atau)\s+/i);
+    const onlyTopicNames = topics.every(topic => /^(?:kesehatan|sertifikasi|harga|asal\s+bahan)$/i.test(topic.trim()));
+    return onlyTopicNames ? " " : sentence;
+  });
+}
+
 // Patterns that indicate prompt injection attempts (DEMO-GUARD-004)
 const INJECTION_PATTERNS: RegExp[] = [
   /ignore.*(?:previous|above|all).*instructions/i,
@@ -118,8 +131,9 @@ export function runRuleEngine(
   }
 
   // ─── DEMO-GUARD-002: Unsupported certification claims ──────────────
+  const productClaimText = omitExcludedTopicLists(draftText);
   for (const pattern of CERTIFICATION_PATTERNS) {
-    const match = draftText.match(pattern);
+    const match = productClaimText.match(pattern);
     if (match) {
       // Check if there's a source_backed fact that justifies this
       const certFacts = facts.filter(
@@ -144,7 +158,7 @@ export function runRuleEngine(
   // ─── DEMO-GUARD-003: Invented product facts ────────────────────────
   // Check for prices, origins, endorsements not in the facts
   for (const pattern of INVENTION_INDICATORS) {
-    const match = draftText.match(pattern);
+    const match = productClaimText.match(pattern);
     if (match) {
       // Check if any source_backed fact contains this
       const matchingFacts = facts.filter(

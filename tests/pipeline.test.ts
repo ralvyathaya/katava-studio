@@ -105,6 +105,36 @@ describe("T04: Rule Engine — Unsupported Certification Blocked", () => {
   });
 });
 
+describe("Reels production notes", () => {
+  const facts = ingestProductSheet(SAFE_PRODUCT_SHEET).facts;
+  const note = "Tanpa klaim kesehatan, sertifikasi, harga, atau asal bahan.";
+
+  function review(draftText: string) {
+    return runRuleEngine({ format: "reels", draftText, citedFactIds: [] }, facts, []);
+  }
+
+  it("accepts a list of excluded topics at the end of the CalmLeaf script", () => {
+    const result = review(`VO: Seduh satu kantong dalam air panas.\nMusik: Instrumental lembut, tempo tenang. ${note}`);
+    assert.deepEqual(result.hardBlocks, []);
+  });
+
+  it("accepts a standalone production note with a different list order", () => {
+    assert.deepEqual(review("Catatan produksi: Tanpa klaim harga dan sertifikasi.").hardBlocks, []);
+  });
+
+  it("still checks actual claims before, after, or attached to a production note", () => {
+    for (const draftText of [
+      `Overlay: Sertifikasi halal, harga Rp45.000.\n${note}`,
+      `${note} VO: Sertifikasi halal, harga Rp45.000.`,
+      "Tanpa klaim kesehatan, tetapi tampilkan sertifikasi halal dan harga Rp45.000.",
+    ]) {
+      const findings = review(draftText).hardBlocks;
+      assert.ok(findings.some(f => f.ruleId === "DEMO-GUARD-002" && f.excerpt.toLowerCase() === "sertifikasi"), draftText);
+      assert.ok(findings.some(f => f.ruleId === "DEMO-GUARD-003" && f.excerpt.toLowerCase() === "harga"), draftText);
+    }
+  });
+});
+
 // ─── T08: Rule Engine — Malformed/Invalid Output ─────────────────────
 
 describe("T08: Rule Engine — Fact Consistency", () => {
